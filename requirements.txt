@@ -1,0 +1,8 @@
+# requirements.txt
+numpy
+torch
+matplotlib
+scipy
+scikit-learn
+tqdm
+pyDOE2
