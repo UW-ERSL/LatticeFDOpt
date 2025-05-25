@@ -6,3 +6,4 @@ scipy
 scikit-learn
 tqdm
 pyDOE2
+mmapy
