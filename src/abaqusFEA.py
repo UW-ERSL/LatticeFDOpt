@@ -279,7 +279,7 @@ def process_line(x0, avg_u3_series, total_rf3_series, target_u3, hit_count, coun
     return line, hit_count, counter
 def removeExtras(script_dir):
     # Extensions to keep
-    allowed_extensions = ('.txt', '.igs', '.py')
+    allowed_extensions = ('.txt', '.igs', '.py','.ipynb','.npy','.md')
 
     for item in os.listdir(script_dir):
         item_path = os.path.join(script_dir, item)
