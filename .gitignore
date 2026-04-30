@@ -1,1 +1,10 @@
 **/__pycache__/
+abaqus_scratch/
+abaqus.rpy
+abaqus.rpy.*
+**/abaqusFEA.pyc
+**/wireModelGen.pyc
+**/mesher.pyc
+abaqus_acis.log
+abaqus1.rec
+
