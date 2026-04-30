@@ -3,14 +3,15 @@ import time
 import sys
 sys.path.append(os.path.realpath('./src/'))
 from abaqusFEA import *
+from wireModelGen import getWireModel
 
     
-unitCellName = 'C4'
+unitCellName = 'C12'
 p = 7 # number of variables
 sampleType ="LHS" # uniform or LHS or solution 
 seedNum = 1 # 0 or 1
 compression = 40.0 # percentage of compression 
-meshsize = 0.8 #mm
+meshsize = 0.4 #mm
 
 # Note: all the following combinations are availables
 # (2, "uniform", 0) # data gen, only C4
@@ -22,8 +23,24 @@ meshsize = 0.8 #mm
 
 # Define the path to script directory
 script_dir = os.getcwd()
+work_dir = os.path.join(script_dir, 'abaqus_scratch')
+if not os.path.exists(work_dir):
+    os.makedirs(work_dir)
 
-job_name = 'rad'+unitCellName
+params = {'base': 2.,'height':2.,'phi':0.0,'delta':0.0, 'nx': 3, 'ny': 3, 'nz': 1,
+                    'Name':unitCellName,'Shape':'Square'} # Square, Hexagon
+scale = 25.4 # inch to mm 
+H = 0.5*scale# 0.5 inch per row height
+
+W = 1*scale  # 1 inch
+B = 1*scale  # 1 inch
+
+params['height'] =  H
+params['base'] =  H
+
+xyzV = getWireModel(params)
+
+job_name = 'rad'+unitCellName+'p'+str(p)+'seed'+str(seedNum)
 node_set_name = 'MOVEDOWN'
 lattice_z_height = 12.7 #mm
 target_u3 = lattice_z_height*compression*0.01 #mm
@@ -39,54 +56,62 @@ elif p==7:
     if sampleType == "uniform":
         sampleType ="LHS"
     
+    
+n1,n2 = 0,2500
 input_file = os.path.join(script_dir,'DataVar/'+unitCellName+sampleType+ "_"+str(p) +"var""_seedNum"+str(seedNum)+".txt") # C4uniform_var2, C4LHS_var2_seedNum0, C4LHS_var2_seedNum1
-output_file = os.path.join(script_dir,unitCellName+'NN'+str(p)+'var/'+"abaqusComp"+str(int(compression))+unitCellName+ sampleType + "_"+str(p) +"var_seedNum" + str(seedNum) + ".txt")
-
 input_ij = read_input_ij(input_file)
-# input_ij =input_ij[0:1] # for testing just one line
+input_ij = input_ij[n1:n2] # for testing just one line
+
+output_file = os.path.join(script_dir,unitCellName+'NN'+str(p)+'var/'+"abaqusComp"+str(int(compression))+unitCellName+ sampleType +
+                            "_"+str(p) +"var_seedNum" + str(seedNum) +"_"+str(n1)+"_"+str(n2)+".txt")
+
 total_runs = len(input_ij)
 total_time = 0.0
 
-removeExtras(script_dir)
+removeExtras(work_dir)
 result_lines = []
 hit_count = 0
 counter = 0
 Li = 0.2 #mm
 Ui = 1.0 #mm
 
-##
-# Define the IGES file path
-iges_file = os.path.join(script_dir, 'Geometry/'+unitCellName +'.igs')
+# ##
+# # Define the IGES file path
+# iges_file = os.path.join(script_dir, 'Geometry/'+unitCellName +'.igs')
 
-# Open the IGES file
-mdb.openIges(iges_file, msbo=False, scaleFromFile=OFF,
-             topology=WIRE, trimCurve=DEFAULT)
+# # Open the IGES file
+# mdb.openIges(iges_file, msbo=False, scaleFromFile=OFF,
+#              topology=WIRE, trimCurve=DEFAULT)
 
-# Create a part from the imported geometry
-mdb.models['Model-1'].PartFromGeometryFile(combine=False, convertToAnalytical=1,
-                                         dimensionality=THREE_D, geometryFile=mdb.acis, name=unitCellName, stitchEdges=1,
-                                         stitchTolerance=1.0, topology=WIRE, type=DEFORMABLE_BODY)
+# # Create a part from the imported geometry
+# mdb.models['Model-1'].PartFromGeometryFile(combine=False, convertToAnalytical=1,
+#                                          dimensionality=THREE_D, geometryFile=mdb.acis, name=unitCellName, stitchEdges=1,
+#                                          stitchTolerance=1.0, topology=WIRE, type=DEFORMABLE_BODY)
                                          
+mdb.Model(modelType=STANDARD_EXPLICIT, name='Model-1')
+
 for k in range(total_runs):
 
     x0 = radiusValue(input_ij[k],Li,Ui)
 
     start_time = time.time()  # Start the timer
     
+    os.chdir(work_dir)
     if unitCellName == 'C4':
-       runFEAC4(mdb,x0, job_name,target_u3,meshsize) # target u2 is Uz_mm, displacement in -ve direction, meshsize to control the length of element
+       runFEAC4(mdb,x0, job_name,target_u3,meshsize, xyzV) # target u2 is Uz_mm, displacement in -ve direction, meshsize to control the length of element
     elif unitCellName == 'C12':
-       runFEAC12(mdb,x0, job_name,target_u3,meshsize) # target u2 is Uz_mm, displacement in -ve direction, meshsize to control the length of element
+       runFEAC12(mdb,x0, job_name,target_u3,meshsize, xyzV) # target u2 is Uz_mm, displacement in -ve direction, meshsize to control the length of element
+    os.chdir(script_dir)
 
     # wait for job to finish by looking at lck file existance
-    lckFile = os.path.join(script_dir, job_name + '.lck')
+    lckFile = os.path.join(work_dir, job_name + '.lck')
     while os.path.isfile(lckFile) == True:
         time.sleep(0.1)
-    
+
     elapsed_time = time.time()  - start_time
     total_time += elapsed_time
-    
-    odb_name = os.path.join(script_dir, job_name + '.odb')
+
+    odb_name = os.path.join(work_dir, job_name + '.odb')
     
     # if odb file exists, read results, or skip
     if os.path.exists(odb_name):
@@ -121,4 +146,4 @@ line = "Total time = {:0.5f}".format(total_time)
 with open(output_file, "a") as f:
             f.write(line + "\n")
 
-removeExtras(script_dir)
+removeExtras(work_dir)
