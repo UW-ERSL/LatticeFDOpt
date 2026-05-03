@@ -7,4 +7,6 @@ abaqus.rpy.*
 **/mesher.pyc
 abaqus_acis.log
 abaqus1.rec
+**/NNmultiStart/
+
 
