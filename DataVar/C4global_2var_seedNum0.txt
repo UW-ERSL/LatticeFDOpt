@@ -1,0 +1,4 @@
+# Seed: 0, Variables: 2, Samples: 2 for global minima
+# Each row represents a sample in the format [val1 ... valp]
+[0.9795918367346939 0.3265306122448979]
+[1.0000000000000000 0.3265306122448979]
