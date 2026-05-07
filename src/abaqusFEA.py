@@ -129,7 +129,7 @@ def read_input_ij(filepath):
     return input_data
 
 
-def runFEAC4(mdb,x0,job_name,Uz_mm,meshsize, xyzV):
+def runFEAC4(mdb,x0,job_name,Uz_mm,meshsize, xyzV, minLoadStep):
     
     #create wire part
     mdb.models['Model-1'].ConstrainedSketch(name='__profile__', sheetSize=13.0)
@@ -303,8 +303,14 @@ def runFEAC4(mdb,x0,job_name,Uz_mm,meshsize, xyzV):
         part)
 
     ### Step settings
-    mdb.models['Model-1'].StaticStep(initialInc=0.025, maxInc=0.025, maxNumInc=500, 
-        name='Step-1', nlgeom=ON, previous='Initial')
+    t_calc = (1.0/minLoadStep)
+    mdb.models['Model-1'].StaticStep(initialInc=t_calc, maxInc=t_calc, maxNumInc=500, 
+        name='Step-1', nlgeom=ON, previous='Initial', timePeriod=1.0, minInc=t_calc*1e-3)
+    
+    # if stabilization needed for NR
+    # mdb.models['Model-1'].steps['Step-1'].setValues(adaptiveDampingRatio=None, 
+    #     continueDampingFactors=False, stabilizationMagnitude=0.0002, 
+    #     stabilizationMethod=DAMPING_FACTOR)
 
     ### Boundary condition
 
@@ -351,7 +357,7 @@ def runFEAC4(mdb,x0,job_name,Uz_mm,meshsize, xyzV):
     pass
     
 
-def runFEAC12(mdb,x0,job_name,Uz_mm,meshsize, xyzV):
+def runFEAC12(mdb,x0,job_name,Uz_mm,meshsize, xyzV, minLoadStep):
         
     #create wire part
     mdb.models['Model-1'].ConstrainedSketch(name='__profile__', sheetSize=13.0)
@@ -527,7 +533,8 @@ def runFEAC12(mdb,x0,job_name,Uz_mm,meshsize, xyzV):
         mdb.models['Model-1'].parts['C12'])
 
     ### Step settings
-    mdb.models['Model-1'].StaticStep(initialInc=0.025, maxInc=0.025, maxNumInc=500, 
+    t_calc = (1.0/minLoadStep)
+    mdb.models['Model-1'].StaticStep(initialInc=t_calc, maxInc=t_calc, maxNumInc=500, 
         name='Step-1', nlgeom=ON, previous='Initial')
 
     ### Boundary condition

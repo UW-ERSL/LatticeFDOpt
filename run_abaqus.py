@@ -8,10 +8,11 @@ from wireModelGen import getWireModel
     
 unitCellName = 'C12'
 p = 7 # number of variables
-sampleType ="LHS" # uniform or LHS or solution 
-seedNum = 1 # 0 or 1
+sampleType ="solution" # uniform or LHS or solution 
+seedNum = 0 # 0 or 1
 compression = 40.0 # percentage of compression 
-meshsize = 0.4 #mm
+meshsize = 0.4 #0.4mm std
+minLoadStep = 40 # 40 is std
 
 # Note: all the following combinations are availables
 # (2, "uniform", 0) # data gen, only C4
@@ -60,10 +61,15 @@ elif p==7:
 n1,n2 = 0,2500
 input_file = os.path.join(script_dir,'DataVar/'+unitCellName+sampleType+ "_"+str(p) +"var""_seedNum"+str(seedNum)+".txt") # C4uniform_var2, C4LHS_var2_seedNum0, C4LHS_var2_seedNum1
 input_ij = read_input_ij(input_file)
-input_ij = input_ij[n1:n2] # for testing just one line
+
+if sampleType != 'solution':
+    input_ij = input_ij[n1:n2] # for testing lines
 
 output_file = os.path.join(script_dir,unitCellName+'NN'+str(p)+'var/'+"abaqusComp"+str(int(compression))+unitCellName+ sampleType +
-                            "_"+str(p) +"var_seedNum" + str(seedNum) +"_"+str(n1)+"_"+str(n2)+".txt")
+                            "_"+str(p) +"var_seedNum" + str(seedNum) +"_"+str(n1)+"_"+str(n2)+"_LS"+str(minLoadStep)+".txt")
+if sampleType == 'solution':
+    output_file = os.path.join(script_dir,unitCellName+'NN'+str(p)+'var/'+"abaqusComp"+str(int(compression))+unitCellName+ sampleType +
+                            "_"+str(p) +"var_seedNum" + str(seedNum) +".txt")
 
 total_runs = len(input_ij)
 total_time = 0.0
@@ -98,9 +104,9 @@ for k in range(total_runs):
     
     os.chdir(work_dir)
     if unitCellName == 'C4':
-       runFEAC4(mdb,x0, job_name,target_u3,meshsize, xyzV) # target u2 is Uz_mm, displacement in -ve direction, meshsize to control the length of element
+       runFEAC4(mdb,x0, job_name, target_u3, meshsize, xyzV, minLoadStep) # target u2 is Uz_mm, displacement in -ve direction, meshsize to control the length of element
     elif unitCellName == 'C12':
-       runFEAC12(mdb,x0, job_name,target_u3,meshsize, xyzV) # target u2 is Uz_mm, displacement in -ve direction, meshsize to control the length of element
+       runFEAC12(mdb,x0, job_name, target_u3, meshsize, xyzV, minLoadStep) # target u2 is Uz_mm, displacement in -ve direction, meshsize to control the length of element
     os.chdir(script_dir)
 
     # wait for job to finish by looking at lck file existance
