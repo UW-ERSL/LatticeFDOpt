@@ -32,21 +32,22 @@ class OptimizeFrame:
         
         Finput = self.Finput.clone()
         
-        Finput =  (Finput - self.frameNN.minVoutput)/(self.frameNN.maxVoutput-self.frameNN.minVoutput)
+        # Finput =  (Finput - self.frameNN.minVoutput)/(self.frameNN.maxVoutput-self.frameNN.minVoutput)
         # self.frameNN.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         x = torch.tensor(xin,requires_grad=True,device=self.frameNN.device).float()
         
         Fcp = self.frameNN(x.reshape(1,-1))
         
         uiMean = torch.linspace(0,1,81)# same as number of loadsteps
-        FiSum = curve_setup(Fcp,t=uiMean.to(Fcp.device),curve='spline').cpu().reshape(-1)
+        FiSum,_ = curve_setup(Fcp,t=uiMean.to(Fcp.device),curve='spline')
+        FiSum = FiSum.cpu().reshape(-1)
         # # Linear interpolation function with boundary handling (out of the bounds handling)
         FiSumN,uiMeanN = linear_interpolation_torch(uiMean*self.uinput[-1],FiSum,self.uinput.reshape(-1)) # N numbers = self.uinput size        
         
         # FiSumN,uiMeanN = FiSum.clone(),uiMean.clone()
         dF = torch.norm((FiSumN[3:-3]- Finput[3:-3])/((Finput[-1] - Finput[0])/1.),self.p) # 3 to -3 importance 
         
-        objValue_FU = 0*dF + torch.norm((FiSumN - Finput)/((Finput[-1] - Finput[0])/1.),self.p)                 
+        objValue_FU = 0*dF + torch.norm((FiSumN - Finput)/((Finput[-1] - Finput[0])),self.p)                 
         objValue =  objValue_FU/torch.from_numpy(self.obj0)
         
         if Jac:
@@ -163,7 +164,10 @@ class OptimizeFrame:
         return xbest, fbest
     
     def plotFDcurves(self,ui,Fi,labelTag='',TargetOnly=False,fileSaveName=None,fig=plt.figure(),hold=False,Normalize=False):
+    
         # dofMax = np.where(np.abs(ui[-1,:].detach().cpu().numpy()) == np.max(np.abs(ui[-1,:].detach().cpu().numpy())))
+        
+        ax = fig.gca()
         if hold:
             print("hold fig is on.")
         else:
@@ -175,10 +179,16 @@ class OptimizeFrame:
         else:
             u_norm = 1.0
             
+        lineWidth = 4     
+            
         if TargetOnly:
-            plt.plot(self.uinput/u_norm,self.Finput,linestyle = 'solid',linewidth=3,label='Target',color='red')
+            plt.plot(self.uinput/u_norm,self.Finput,linestyle = 'solid',linewidth=lineWidth,label='Target',color='red')
         else:
             
+            if not isinstance(Fi, torch.Tensor):
+                Fi = torch.from_numpy(Fi).float()
+                ui = torch.from_numpy(ui).float()
+    
             FF, UU = Fi.cpu().detach(),ui.cpu().detach()
                
              # Linear interpolation function with boundary handling (out of the bounds handling)
@@ -193,8 +203,9 @@ class OptimizeFrame:
                     print('UU_OptCurve_FEM = ',UU);print('FF_OptCurve_FEM = ',FF);
                 elif 'InitialGuess' in fileSaveName:
                     print('UU_Init_Iter = ',UU);print('FF_Init_Iter = ',FF);
-            plt.plot(self.uinput/u_norm,self.Finput,linestyle = 'solid',linewidth=3,label='Target',color='red')
-            plt.plot(UU/u_norm,FF, linestyle = 'solid',linewidth=3,color = 'black')
+                    
+            plt.plot(self.uinput/u_norm,self.Finput,linestyle = 'solid',linewidth=lineWidth,label='Target',color='red')
+            plt.plot(UU/u_norm,FF, linestyle = 'solid',linewidth=lineWidth,color = 'black')
             plt.plot(uiMeanN/u_norm,FiSumN, linestyle = 'none',marker='o',label=labelTag,markersize=10,color = 'black')
             
             # x_line = np.zeros(2)
@@ -215,7 +226,10 @@ class OptimizeFrame:
             plt.xlabel('Displacement in mm',fontsize=16)
 
         plt.ylabel('Force in N',fontsize=16)
-        plt.title('Force Displacement curve',fontsize=18)
+        
+        
+        
+        # plt.title('Force Displacement curve',fontsize=18)
         # plt.pause(1)
         # plt.xlim([0,3.2])
         if TargetOnly:
@@ -227,3 +241,61 @@ class OptimizeFrame:
         if fileSaveName != None:
             plt.savefig(fileSaveName)
         fig.show()
+        
+    def plot_fd_curves(
+            self,
+            ui,
+            Fi,
+            label_tag="",
+            target_only=False,
+            fig=None,
+            normalize=False,
+            save_dir=None,
+        ):
+    
+        fig = fig or plt.figure()
+        plt.clf()
+    
+        u_norm = self.uinput[-1] if normalize else 1.0
+    
+        lineWdth = 4
+        # Target curve
+        plt.plot(self.uinput / u_norm, self.Finput, 'r-', lw=lineWdth, label="Target")
+        if not target_only:
+            ui = torch.as_tensor(ui).float().detach().cpu()
+            Fi = torch.as_tensor(Fi).float().detach().cpu()
+    
+            Fi_i, ui_i = linear_interpolation_torch(ui, Fi, self.uinput.reshape(-1))
+    
+            plt.plot(ui / u_norm, Fi, 'k-', lw=lineWdth, label="")
+            plt.plot(ui_i / u_norm, Fi_i, 'ko', ms=10, label=label_tag)
+    
+            # vertical connector lines
+            x = (self.uinput / u_norm).numpy()
+            y1 = self.Finput.numpy()
+            y2 = Fi_i.numpy()
+    
+            for xi, ya, yb in zip(x, y1, y2):
+                plt.plot([xi, xi], [ya, yb], 'b--', lw=2)
+    
+            maxF = max(Fi_i.max(), self.Finput[-1])
+        else:
+            maxF = self.Finput[-1]
+    
+        font_size = 20
+        plt.xlabel("Normalized Displacement" if normalize else "Displacement (mm)", fontsize=font_size)
+        plt.ylabel("Force (N)", fontsize=font_size)
+        # plt.title("Force–Displacement Curve", fontsize=font_size)
+        plt.ylim(0, float(maxF) * 1.4)
+        plt.xticks(fontsize=font_size - 2)
+        plt.yticks(fontsize=font_size - 2)
+    
+        plt.legend(fontsize=font_size, loc="upper left")
+        plt.tight_layout()
+    
+        if save_dir:
+            plt.savefig(save_dir, bbox_inches="tight", dpi=300, transparent=True)
+    
+        plt.show()
+        return fig
+    

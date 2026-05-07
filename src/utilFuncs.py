@@ -17,7 +17,7 @@ from tqdm import tqdm
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error, r2_score
 import re
 from matplotlib.gridspec import GridSpec
-from pyDOE2 import lhs
+# from pyDOE2 import lhs
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -46,14 +46,26 @@ def curve_setup(cp, t, curve='points'):
     Returns:
         A tensor of points on the Bézier curve (shape (m, d)).
     """
+    zero_one = torch.ones_like(cp, device=cp.device)
+    # make 0th point as 0
+    zero_one[:,0] = 0
+    cp = cp.clone() * zero_one
     if curve == 'points':
         curve_points = cp.clone().T
     elif curve == 'spline':
         p = 2 # degree of the curve
         n = cp.shape[1] # number of control points
+        # U = np.zeros(p+n+1)
+        # U[p:n+1] = np.linspace(0,1,n-p+1)
+        
         U = np.zeros(p+n+1)
-        U[p:n+1] = np.linspace(0,1,n-p+1)
+        i = np.linspace(0, 1, n-p+1)
+        # pick ONE of these:
+        U[p:n+1] = i                      # uniform
+        # U[p:n+1] = 0.5*(1.0-np.cos(np.pi*i))  # cluster both ends (recommended)
         U[-p::] = 1
+        # U = U**1.2
+        
         N = np.zeros((n,t.shape[0]))
         I =  np.eye(n)
         for i in range(n):
@@ -76,7 +88,7 @@ def curve_setup(cp, t, curve='points'):
         # Calculate points on the Bézier curve
         curve_points = bernstein_matrix @ cp.T
 
-    return curve_points.T
+    return curve_points.T, cp
 #--------------------------#
 # # Neural network
 class NeuralNet(nn.Module):
@@ -117,7 +129,10 @@ class NeuralNet(nn.Module):
         layer_sizes = self.calculate_layer_sizes(base_neurons, num_layers, bottleneck_factor)
 
         # Input layer
-        self.layers.append(nn.Linear(input_dim, layer_sizes[0]))
+        l_in = nn.Linear(input_dim, layer_sizes[0])
+        nn.init.xavier_normal_(l_in.weight)
+        nn.init.zeros_(l_in.bias)
+        self.layers.append(l_in)
         self.bnLayer.append(nn.BatchNorm1d(layer_sizes[0]))
         self.dropout.append(nn.Dropout(self.dropout_p))
 
@@ -176,9 +191,9 @@ class NeuralNet(nn.Module):
         x = self.layers[-1](x)
         return x
     
-    def loss_fn(self,x,y,loss):
+    def loss_fn(self,x,y):
         c = 0.001
-        loss += self.criterion(x, y) 
+        loss = self.criterion(x, y) 
         
         # Calculate L1 regularization term
         l1_penalty = 0.0
@@ -192,12 +207,18 @@ class NeuralNet(nn.Module):
         return loss
         
     
-    def train_model(self, train_loader, test_loader, num_epochs=10, lr=0.0001, tol=1e-3,prntNum=1):
-    
+    def train_model(self, train_loader, test_loader, num_epochs=10, lr=0.0001, prntNum=1, scheduler_type='cosine'):
+
         optimizer = torch.optim.AdamW(self.parameters(), lr=lr, weight_decay=1e-5)
-        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)  # T_max is usually num_epochs
-        
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
+
+        if scheduler_type == 'onecycle':
+            scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                optimizer, max_lr=lr * 10,
+                steps_per_epoch=len(train_loader),
+                epochs=num_epochs
+            )
+        else:
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(num_epochs/2), eta_min=1e-6)
         
         epoch = 0.0
         self.trainlossArr = []
@@ -211,59 +232,72 @@ class NeuralNet(nn.Module):
         loss_last = loss.clone()
         loss0 = torch.ones(1).to(self.device)
         for epoch in range(num_epochs):
-            loss = torch.zeros(1).to(self.device)
+            train_loss_sum = 0.0
+            loss_accum = torch.zeros(1).to(self.device)
             all_absSum_train=[]
             all_absSum_test=[]
+
+            if scheduler_type != 'onecycle':
+                optimizer.zero_grad()
+
             for batch in train_loader:
                 inputs, targets = batch
-                inputs = inputs.to(self.device).float()  # Move inputs to device
-                targets = targets.to(self.device).float() # Move targets to device. 
+                inputs = inputs.to(self.device).float()
+                targets = targets.to(self.device).float()
                 self.Npt = targets.shape[1]
                 mask = inputs[:,self.nnSettings['inputDim']::]
-                optimizer.zero_grad()
                 outputs = self.forward(inputs[:,0:self.nnSettings['inputDim']])
-                
-                outputs2 = curve_setup(outputs,t=torch.linspace(0,1,self.Npt).to(self.device),curve=self.curve)
-                   
-                loss += self.loss_fn(outputs2*mask,targets*mask,loss)
-                
+                outputs2,_ = curve_setup(outputs,t=torch.linspace(0,1,self.Npt).to(self.device),curve=self.curve)
+
+                batch_loss = self.loss_fn(outputs2*mask, targets*mask)
+                train_loss_sum += batch_loss.item()
                 all_absSum_train.append(torch.abs(outputs2 - targets).mean(dim=1).detach())
-            loss = loss/loss0
-            loss.backward(retain_graph=True)
-            torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0) # Gradient clipping
-            optimizer.step()
-            
-            scheduler.step() 
+
+                if scheduler_type == 'onecycle':
+                    optimizer.zero_grad()
+                    batch_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+                    optimizer.step()
+                    scheduler.step()
+                else:
+                    loss_accum += batch_loss
+
+            if scheduler_type != 'onecycle':
+                loss_accum = loss_accum / loss0
+                loss_accum.backward()
+                torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+                optimizer.step()
+                scheduler.step()
+
+            loss = train_loss_sum / loss0.item()
             
             epoch += 1
-            
-            
+                        
             if ((epoch) % int(prntNum)== 0 or epoch == 1):
-                self.trainlossArr.append(loss.cpu().detach().numpy().item())
+                self.trainlossArr.append(float(loss))
                 self.Narr.append(epoch-1)
                 with torch.no_grad():
                     lossV = 0.0
                     for inputs, targets in test_loader:
-                        inputs = inputs.to(self.device).float()  # Move inputs to device
-                        targets = targets.to(self.device).float() # Move targets to device
+                        inputs = inputs.to(self.device).float()
+                        targets = targets.to(self.device).float()
                         self.Npt = targets.shape[1]
                         mask = inputs[:,self.nnSettings['inputDim']::]
-    
+
                         outputs = self.forward(inputs[:,0:self.nnSettings['inputDim']])
-                        
-                        outputs2 = curve_setup(outputs,t=torch.linspace(0,1,self.Npt).to(self.device),curve=self.curve)
-                        
-                        lossV += self.loss_fn(outputs2*mask,targets*mask,lossV)
-                    
+                        outputs2,_ = curve_setup(outputs,t=torch.linspace(0,1,self.Npt).to(self.device),curve=self.curve)
+
+                        lossV += self.loss_fn(outputs2*mask, targets*mask).item()
+
                         all_absSum_test.append(torch.abs(outputs2 - targets).mean(dim=1).detach())
-                    lossV = lossV/loss0
-    
-                    self.vallossArr.append(lossV.cpu().detach().numpy().item())
-            
+                    lossV = lossV / loss0.item()
+
+                    self.vallossArr.append(float(lossV))
+
                 maxV = torch.max(torch.cat(all_absSum_train))
                 maxV2 = torch.max(torch.cat(all_absSum_test))
-                
-                print(f"Epoch [{epoch}/{num_epochs}], Training loss: {loss.item():.4f} , Validation loss: {lossV.item():.4f},\n \
+
+                print(f"Epoch [{epoch}/{num_epochs}], Training loss: {float(loss):.4f} , Validation loss: {float(lossV):.4f},\n \
                 Max absolute difference on Train: {maxV.item():.4f}, and Test: {maxV2.item():.4f}")
             
             if epoch > num_epochs:
@@ -288,12 +322,12 @@ class NeuralNet(nn.Module):
                 mask = inputs[:, self.nnSettings['inputDim']::]
     
                 outputs = self.forward(inputs[:, 0:self.nnSettings['inputDim']])
-                outputs2 = curve_setup(outputs, t=torch.linspace(0, 1, targets.shape[1]).to(self.device), curve=self.curve)
+                outputs2,_ = curve_setup(outputs, t=torch.linspace(0, 1, targets.shape[1]).to(self.device), curve=self.curve)
     
                 masked_outputs = (outputs2 * mask).cpu().numpy()
                 masked_targets = (targets * mask).cpu().numpy()
     
-                loss += self.loss_fn(outputs2 * mask, targets * mask, loss)
+                loss += self.loss_fn(outputs2 * mask, targets * mask)
                 all_absSum_data.append(torch.abs(outputs2 * mask - targets * mask).mean(dim=1))
     
                 # Append the masked numpy arrays
@@ -311,8 +345,8 @@ class NeuralNet(nn.Module):
         avg_rmse = root_mean_squared_error(all_targets_np, all_outputs_np)
     
         # Calculate R² score using scikit-learn
-        r2_scores = r2_score(all_targets_np, all_outputs_np, multioutput='raw_values')
-        avg_r2 = np.mean(r2_scores)
+        avg_r2 = r2_score(all_targets_np, all_outputs_np, multioutput='uniform_average')
+        # avg_r2 = np.mean(r2_scores)
     
         maxV_index = torch.topk(torch.cat(all_absSum_data).to(self.device), k=5, dim=0)
         minV_index = torch.topk(torch.cat(all_absSum_data).to(self.device), k=5, dim=0, largest=False)
@@ -340,7 +374,7 @@ class NeuralNet(nn.Module):
                 raise TypeError("Input data t must be a NumPy array or PyTorch tensor.")
             
             output_tensor2 = self.forward(input_tensor[:,0:self.nnSettings['inputDim']])
-            output_tensor = curve_setup(output_tensor2,t,curve=self.curve)
+            output_tensor,output_tensor2 = curve_setup(output_tensor2,t,curve=self.curve)
 
             predictions = output_tensor.cpu().numpy() if isinstance(input_data, np.ndarray) else output_tensor.cpu().numpy() # Move to CPU for numpy conversion
             cp =  output_tensor2.cpu().numpy() if isinstance(input_data, np.ndarray) else output_tensor2.cpu().numpy() # Move to CPU for numpy conversion
@@ -360,7 +394,7 @@ def iter_lossPlot(TrainLoss,valLoss,N):
     
     # Title
     titleStr = f"Training Loss {TrainLoss[-1]:.2e}\nValidation Loss {valLoss[-1]:.2e}"
-    plt.title(titleStr, fontsize=18)
+    # plt.title(titleStr, fontsize=18)
     plt.legend(fontsize=16)
     plt.show()
 #--------------------------#
@@ -1396,7 +1430,8 @@ def plotStructure(R,nodeXY,connectivity, titleStr, plotDeformed = True,TrueScale
     # Change the font size of the ticks 
     cbar.ax.tick_params(labelsize=14)    
     ax.set_aspect('equal')
-
+    
+    return ax, cbar
   # plt.show()
   
 def create_cylinder(ax,p0,p1,R,color,not_v):
