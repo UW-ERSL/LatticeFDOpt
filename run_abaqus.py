@@ -6,9 +6,9 @@ from abaqusFEA import *
 from wireModelGen import getWireModel
 
     
-unitCellName = 'C12'
-p = 7 # number of variables
-sampleType ="solution" # uniform or LHS or solution 
+unitCellName = 'C4'
+p = 2 # number of variables
+sampleType ="uniform" # uniform or LHS or solution or global
 seedNum = 0 # 0 or 1
 compression = 40.0 # percentage of compression 
 meshsize = 0.4 #0.4mm std
@@ -62,12 +62,18 @@ n1,n2 = 0,2500
 input_file = os.path.join(script_dir,'DataVar/'+unitCellName+sampleType+ "_"+str(p) +"var""_seedNum"+str(seedNum)+".txt") # C4uniform_var2, C4LHS_var2_seedNum0, C4LHS_var2_seedNum1
 input_ij = read_input_ij(input_file)
 
-if sampleType != 'solution':
+if sampleType != 'solution' or sampleType != 'global':
     input_ij = input_ij[n1:n2] # for testing lines
 
+# input_ij = input_ij[0:1] # for testing lines
+
+# output_file = os.path.join(script_dir,unitCellName+'NN'+str(p)+'var/'+"abaqusComp"+str(int(compression))+unitCellName+ sampleType +
+                            # "_"+str(p) +"var_seedNum" + str(seedNum) +"_"+str(n1)+"_"+str(n2)+"_LS"+str(minLoadStep)+".txt")
+
 output_file = os.path.join(script_dir,unitCellName+'NN'+str(p)+'var/'+"abaqusComp"+str(int(compression))+unitCellName+ sampleType +
-                            "_"+str(p) +"var_seedNum" + str(seedNum) +"_"+str(n1)+"_"+str(n2)+"_LS"+str(minLoadStep)+".txt")
-if sampleType == 'solution':
+                            "_"+str(p) +"var_seedNum" + str(seedNum) +".txt")
+
+if sampleType == 'solution' or sampleType == 'global':
     output_file = os.path.join(script_dir,unitCellName+'NN'+str(p)+'var/'+"abaqusComp"+str(int(compression))+unitCellName+ sampleType +
                             "_"+str(p) +"var_seedNum" + str(seedNum) +".txt")
 
@@ -140,7 +146,7 @@ for k in range(total_runs):
     ## save line to file
     if counter == 1:
         # Write all results to file
-        with open(output_file, "w") as f:
+        with open(output_file, "a") as f:
             f.write(line + "\n")
     else:    
         # Append all results to file
