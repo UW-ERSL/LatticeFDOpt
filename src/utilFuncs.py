@@ -1095,7 +1095,7 @@ def barPlotofOptimization(V0, Vopt, VDataAbaqusOpt,threshold=3.0,hatch_patterns=
         ax.set_yticklabels(ax.get_yticks(),fontsize=16)
         # ax.set_title('Lower the better')
         ax.set_xticks(index + bar_width)
-        ax.set_xticklabels([f'IG {i+1}' for i in range(n_groups)],fontsize=16)
+        ax.set_xticklabels([f'MS {i+1}' for i in range(n_groups)],fontsize=16)
         ax.grid(axis='y', linestyle='--', alpha=0.7)
 
         ax.set_ylim(None,1.4*max(V0))
@@ -1114,74 +1114,76 @@ def plot_optimization_curves(optFrame, x0_all, xopt_all, V0, Vopt, DataAbaqusOpt
     colors = plt.cm.viridis(np.linspace(0, 1, num_curves + 2))  # Adjust for the 2 extra curves.
     marker_stride = 8  # Place a marker every 8 data points
     maxU = optFrame.uinput[-1]
+    maxU = 1.0 # removes normalization
+    maxFtarget = max(optFrame.Finput)
     
     fHeight = 8 # inches
     lnWdth = 6
     mrkSize = 16
-    fntSize = 26
+    fntSize = 30
 
     fig, (ax_a, ax_b, ax_c) = plt.subplots(1, 3, figsize=(3*fHeight, fHeight), sharey=True)  # sharey=True to link y-axis limits
 
-    # Plot Target in both figures
-    ax_a.plot(optFrame.uinput / maxU, optFrame.Finput, linestyle='solid',  linewidth=lnWdth, label='Target', color='red')
-    ax_b.plot(optFrame.uinput / maxU, optFrame.Finput, linestyle='solid',  linewidth=lnWdth, color='red', label='Target')  # No label to avoid duplication
-    ax_c.plot(optFrame.uinput / maxU, optFrame.Finput, linestyle='solid',  linewidth=lnWdth, color='red', label='Target')  # No label to avoid duplication
+    # Plot Target — only labelled on ax_a for the shared legend
+    ax_a.plot(optFrame.uinput / maxU, optFrame.Finput, linestyle='solid', linewidth=lnWdth, label='Target', color='red')
+    ax_b.plot(optFrame.uinput / maxU, optFrame.Finput, linestyle='solid', linewidth=lnWdth, color='red')
+    ax_c.plot(optFrame.uinput / maxU, optFrame.Finput, linestyle='solid', linewidth=lnWdth, color='red')
 
     for i in range(num_curves):
         marker = markers[i % len(markers)]
         color = colors[i]
+        label = f'MultiStart {i+1}'
 
-        # Initial Guess (Figure a)
+        # Initial Guess (Figure a) — labelled here only for the shared legend
         V0[i], _ = optFrame.objectiveCall1(x0_all[i, :], Jac=False)
         ax_a.plot(optFrame.ui[::marker_stride] / maxU, optFrame.Fi[::marker_stride], linestyle='', marker=marker, color=color,
-                 label=f'Initial {i+1}',markersize=mrkSize)
-        ax_a.plot(optFrame.ui / maxU, optFrame.Fi, linestyle='-',  linewidth=lnWdth, color=color)  # Add a faint line connecting all points
+                 label=label, markersize=mrkSize)
+        ax_a.plot(optFrame.ui / maxU, optFrame.Fi, linestyle='-', linewidth=lnWdth, color=color)
 
-        # Optimized Results (Figure b)
+        # Optimized Results (Figure b) — no label, covered by shared legend
         Vopt[i], _ = optFrame.objectiveCall1(xopt_all[i, :], Jac=False)
         ax_b.plot(optFrame.ui[::marker_stride] / maxU, optFrame.Fi[::marker_stride], linestyle='', marker=marker, color=color,
-                 label=f'Optimized {i+1}',markersize=mrkSize)
-        ax_b.plot(optFrame.ui / maxU, optFrame.Fi, linestyle='-',  linewidth=lnWdth, color=color)  # Add a faint line connecting all points
+                 markersize=mrkSize)
+        ax_b.plot(optFrame.ui / maxU, optFrame.Fi, linestyle='-', linewidth=lnWdth, color=color)
 
     if DataAbaqusOpt is not None:
         VDataAbaqusOpt = np.zeros(num_curves)
         for i in range(num_curves):
             marker = markers[i % len(markers)]
             color = colors[i]
-            VDataAbaqusOpt[i],_ = optFrame.objectiveCall2(DataAbaqusOpt[i,:,1]) 
-            ax_c.plot(DataAbaqusOpt[i,:,0] / maxU, DataAbaqusOpt[i,:,1], linestyle='', linewidth=lnWdth, \
-            marker=marker, color=color,label=f'Abaqus FEA {i+1}',markersize=mrkSize)
-            ax_c.plot(DataAbaqusOpt[i,:,0] / maxU, DataAbaqusOpt[i,:,1], linestyle='-', linewidth=lnWdth, \
-            color=color)
+            VDataAbaqusOpt[i],_ = optFrame.objectiveCall2(DataAbaqusOpt[i,:,1])
+            ax_c.plot(DataAbaqusOpt[i,:,0] / maxU, DataAbaqusOpt[i,:,1], linestyle='', linewidth=lnWdth,
+                     marker=marker, color=color, markersize=mrkSize)
+            ax_c.plot(DataAbaqusOpt[i,:,0] / maxU, DataAbaqusOpt[i,:,1], linestyle='-', linewidth=lnWdth,
+                     color=color)
     
     
     # Labels and Titles for Figure a
-    ax_a.set_xlabel('Normalized displacement', fontsize=fntSize+4)
-    ax_a.set_ylabel('Force in N', fontsize=fntSize+4)
-    ax_a.set_title('Initial Guesses', fontsize=fntSize)
-    ax_a.legend(loc='upper right', fontsize=fntSize)
+    ax_a.set_xlabel('Displacement in mm', fontsize=fntSize)
+    ax_a.set_ylabel('Force in N', fontsize=fntSize)
+    ax_a.set_title('Initial Guesses', fontsize=fntSize+2)
     ax_a.grid(True)
     ax_a.tick_params(axis='both', which='major', labelsize=fntSize-2)
-    oldYlim = ax_a.get_ylim()[1]  # Get the current ymax
-    ax_a.set_ylim(None, 1.4 * oldYlim)  # Set the new y-axis limits # make it 1.0 for 7 var
+    # ax_a.set_ylim(None, 2.0 * maxFtarget)
 
     # Labels and Titles for Figure b
-    ax_b.set_xlabel('Normalized displacement', fontsize=fntSize+4)
-    # ax_b.set_ylabel('Force in N', fontsize=fntSize) # Added the missing y-label
-    ax_b.set_title('Optimized Results', fontsize=fntSize)
-    ax_b.legend(loc='upper right', fontsize=fntSize)
+    ax_b.set_xlabel('Displacement in mm', fontsize=fntSize)
+    ax_b.set_title('Optimized Results', fontsize=fntSize+2)
     ax_b.grid(True)
     ax_b.tick_params(axis='both', which='major', labelsize=fntSize-2)
 
     # Labels and Titles for Figure c
-    ax_c.set_xlabel('Normalized displacement', fontsize=fntSize+4)
-    # ax_c.set_ylabel('Force in N', fontsize=fntSize) # Added the missing y-label
-    ax_c.set_title('Abaqus FEA on Optimized Results', fontsize=fntSize)
-    ax_c.legend(loc='upper right', fontsize=fntSize)
+    ax_c.set_xlabel('Displacement in mm', fontsize=fntSize)
+    ax_c.set_title('Abaqus FEA on Optimized Results', fontsize=fntSize+2)
     ax_c.grid(True)
     ax_c.tick_params(axis='both', which='major', labelsize=fntSize-2)
 
-    fig.tight_layout()
+    # Single shared legend below all subplots
+    handles, labels = ax_a.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='lower center', fontsize=fntSize,
+               ncol=len(handles), bbox_to_anchor=(0.5, -0.05),
+               bbox_transform=fig.transFigure)
+    fig.tight_layout(rect=[0, 0.1, 1, 1])
 
     return V0, Vopt,VDataAbaqusOpt
     
@@ -1212,7 +1214,7 @@ def plotOptxk(ax,optFrame,xk_array,strAdd,colors,markers,markersize):
     return ax
     
 
-def plot_objective_landscape(optFrame, n: int, square_size: tuple = (12, 12)):
+def plot_objective_landscape(optFrame, n: int, fig=plt.figure(figsize=(12, 12))):
     """
     Generates and plots the objective landscape for a given optFrame using a neural network,
     identifies global minima, and returns relevant data and the plot axes.
@@ -1225,9 +1227,7 @@ def plot_objective_landscape(optFrame, n: int, square_size: tuple = (12, 12)):
         n (int): The number of intervals for the meshgrid along each axis.
                  A higher 'n' results in a finer grid and more detailed plot,
                  but increases computation time.
-        square_size (tuple, optional): A tuple (width, height) in inches for the
-                                       figure size. Defaults to (12, 12).
-
+        
     Returns:
         tuple: A tuple containing:
             - xGlobalNN (np.ndarray): A 2x2 NumPy array. Each row represents the
@@ -1270,9 +1270,9 @@ def plot_objective_landscape(optFrame, n: int, square_size: tuple = (12, 12)):
 
     # Create a Matplotlib figure and axes for the plot.
     # 'num=1' assigns a figure number.
-    fig = plt.figure(num=1)
-    # Set the figure size based on the 'square_size' parameter.
-    fig.set_size_inches(square_size[0], square_size[1])
+    # fig = plt.figure(num=1)
+    # # Set the figure size based on the 'square_size' parameter.
+    # fig.set_size_inches(square_size[0], square_size[1])
     # Add a subplot to the figure. '111' means 1x1 grid, first subplot.
     ax = fig.add_subplot(111)
 
